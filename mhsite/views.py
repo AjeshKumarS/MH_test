@@ -38,6 +38,7 @@ def application(request):
     if request.method=='POST':
         form=ApplicationForm(request.POST)
 
+
         if form.is_valid():
             form.save()
             return redirect('/')
