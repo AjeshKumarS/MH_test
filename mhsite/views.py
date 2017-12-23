@@ -1,17 +1,17 @@
 from __future__ import unicode_literals
-from django.shortcuts import render, redirect
-from mhsite.forms import RegistrationForm, ApplicationForm, ExpenseForm, ReportForm
+from django.shortcuts import render,redirect
+from mhsite.forms import RegistrationForm,ApplicationForm,ExpenseForm,ReportForm,MessCutForm
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+from mhsite import middleware
 from django.contrib.auth.forms import AuthenticationForm
-from mhsite.models import Application, Expense
+from mhsite.models import Application,Expense,MessCut, Profile
 from django.views import View
 from django.views.generic.edit import FormView
 from django.db import IntegrityError
 from django.utils.dateformat import format
-import os
-from .models import Profile
-from django.contrib.auth.models import User
-from mhsite import middleware
+from datetime import date, timedelta, datetime
+import json, os
 
 
 def home(request):
@@ -74,6 +74,7 @@ def loginf(request):
             args = {'form': form, 'error': True}
             return render(request, 'mhsite/login.html', args)
 
+
     return render(request, 'mhsite/login.html', args)
 
 
@@ -88,6 +89,7 @@ def students():
 
 
 def application(request):
+
     form = ApplicationForm()
     args = {'form': form, 'name': url_lock('application')}
     if request.method == 'POST':
@@ -147,11 +149,174 @@ def url_lock(page):
         return index
     return index
 
+#mess cut data generation function (supprot function for mess_cut)
+def date_gen(lst,start_date,end_date,objects=None):
+    delta = end_date - start_date
+    for i in range(delta.days+1):
+        lst['processing'].append(str(start_date + timedelta(days=i)))
 
-def expense(request, year, month, day):
-    date = (year + '-' + month + '-' + day)
 
-    if request.method == 'POST':
+    seen = set()
+    seen_add = seen.add
+    lst['processing'] = [x for x in lst['processing'] if not (x in seen or seen_add(x))]
+
+    return lst
+
+#support function for mess_cut
+def duplicate(date_list,date_type):
+    duplicate_dates = []
+    for date in date_list['processing']:
+        date_obj = datetime.strptime(date, '%Y-%m-%d')
+        year = str(date_obj.year)
+        month = str(date_obj.month)
+        if year in date_type:
+
+            if  month in date_type[year]:
+
+                if date in date_type[str(date_obj.year)][str(date_obj.month)]:
+                    duplicate_dates.append(date)
+
+                else:
+                    continue
+
+            else:
+                continue
+
+        else:
+            continue
+    return duplicate_dates
+
+def mess_cut(request):
+    if request.method=='POST':
+        form=MessCutForm(request.POST)
+
+        if form.is_valid():
+            email= request.user.email
+            start_date=form.cleaned_data['start_date']
+            end_date=form.cleaned_data['end_date']
+            try:
+
+                obj = MessCut.objects.get(email=email)
+                date_list = json.loads(obj.mess_cut_dates)
+
+                date_list=(date_gen(date_list,start_date,end_date))
+
+                approved_dates = json.loads(obj.approved_dates)
+                rejected_dates = json.loads(obj.rejected_dates)
+
+                duplicate_dates = duplicate(date_list,approved_dates) + duplicate(date_list,rejected_dates)
+                date_list['processing'] = [date for date in date_list['processing'] if date not in duplicate_dates]
+
+                date_list = (json.dumps(date_list))
+
+                obj.mess_cut_dates=date_list
+                obj.applied_date =  datetime.now().timestamp()
+
+                obj.save()
+
+                #return to new page
+            except:
+
+                date_list = (date_gen({'processing':[]},start_date,end_date))
+                date_list = json.dumps(date_list)
+                obj = MessCut(email=email, mess_cut_dates=date_list, applied_date =  datetime.now().timestamp())
+                obj.save()
+
+
+            return redirect('/')
+        else:
+            args={'form':form}
+            return render(request,'mhsite/mess_cut.html',args)
+    else:
+        form = MessCutForm()
+        args={'form':form}
+        return render(request,'mhsite/mess_cut.html',args)
+
+def processing(request):
+    rows = MessCut.objects.all()
+    res = []
+    for row in rows:
+        a =  Profile.objects.all()[0].email
+        profile = Profile.objects.get(email=row.email)
+        name = profile.fname + " " + profile.lname
+        mid = MessCut.objects.get(email=row.email).id
+        room_number = profile.room_number #Complete after finishing profile
+
+        data = json.loads(row.mess_cut_dates)
+        timestamp = float(MessCut.objects.get(email=row.email).applied_date)
+        applied_date = datetime.fromtimestamp(timestamp).strftime("%A, %d-%m-%Y")
+
+        if len(data['processing']) > 0:
+            res.append([name,room_number,applied_date,mid])
+
+    args = {'data':res}
+    return render(request,'mhsite/mess_cut_processing.html', args)
+
+def approval(request,mess_id):
+    mess = MessCut.objects.get(id=mess_id)
+    mess_data = json.loads(mess.mess_cut_dates)
+    dates = mess_data['processing']
+
+    profile_data = Profile.objects.get(email=mess.email)
+    profile = {'name':profile_data.fname + profile_data.lname, 'room_number':profile_data.room_number, 'mobile':profile_data.phone}
+
+    args = {'dates':dates, 'profile':profile}
+    return render(request,'mhsite/verify.html', args)
+
+#Final processing of mess data
+def final(request, mess_id):
+    mess = MessCut.objects.get(id=mess_id)
+    mess_data = json.loads(mess.mess_cut_dates)
+    dates = mess_data['processing']
+    approved_dates = []
+    rejected_dates = []
+
+    for date in dates:
+        try:
+
+            choice = request.POST[date]
+            if choice == '1':
+                approved_dates.append(date)
+            elif choice == '0':
+                rejected_dates.append(date)
+        except:
+            pass
+
+    mess_data['processing'] = [date for date in dates if (date not in approved_dates) and (date not in rejected_dates)]
+
+    def date_data(x_date,dates):
+        for date in dates:
+            dateobject = datetime.strptime(date, '%Y-%m-%d')
+
+            if str(dateobject.year) not in x_date:
+                x_date[str(dateobject.year)] = {}
+
+            if str(dateobject.month) not in x_date[str(dateobject.year)]:
+                x_date[str(dateobject.year)][str(dateobject.month)] = []
+
+            x_date[str(dateobject.year)][str(dateobject.month)].append(date)
+
+        return x_date
+
+
+    dic_approved_dates = (date_data(json.loads(mess.approved_dates),approved_dates))
+    dic_rejected_dates = (date_data(json.loads(mess.rejected_dates),rejected_dates))
+
+
+    mess.mess_cut_dates = json.dumps(mess_data)
+    mess.approved_dates = json.dumps(dic_approved_dates)
+    mess.rejected_dates = json.dumps(dic_rejected_dates)
+    mess.process_date = datetime.now().timestamp()
+
+    mess.save()
+
+    #print ('approved', approved_dates, 'rejected', rejected_dates)
+    return redirect('/')
+
+
+def expense(request,year,month,day):
+    date=(year+'-'+month+'-'+day)
+    if request.method=='POST':
         try:
             expense = Expense.objects.get(date=date)
             form = ExpenseForm(request.POST, instance=expense)
@@ -163,7 +328,7 @@ def expense(request, year, month, day):
 
             try:
                 form.save()
-                return redirect('report' + '/' + date)
+                return redirect('/report'+'/'+date)
 
             except IntegrityError as e:
 
@@ -172,14 +337,15 @@ def expense(request, year, month, day):
             args = {'form': form}
             return render(request, 'mhsite/expense_tracker.html', args)
 
-
+#edit/create expense
     else:
+        #edit expense for a month
         try:
             expense = Expense.objects.get(date=date)
             form = ExpenseForm(instance=expense)
             args = {'form': form}
             return render(request, 'mhsite/expense_tracker.html', args)
-
+        #create expense for a month
         except Expense.DoesNotExist:
             form = ExpenseForm(initial={'date': date})
             args = {'form': form}
