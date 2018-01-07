@@ -137,7 +137,7 @@ def application(request):
             form = ApplicationForm(request.POST)
             if Application.objects.filter(email=request.user.username).exists():
                 instance = Application.objects.get(email=request.user.email)
-                form = ApplicationForm(request.POST, instance=instance)
+                form = ApplicationForm(request.POST,instance = instance)
 
             if form.is_valid():
 
@@ -166,14 +166,14 @@ def application(request):
 
             if Application.objects.filter(email=request.user.username).exists():
                 instance = Application.objects.get(email=request.user.email)
-                form = ApplicationForm(instance=instance)
+                form = ApplicationForm(instance = instance)
 
             if users is not None:
+
                 args = {'form': form, 'usern': users, }
                 return render(request, 'mhsite/students/application.html', args)
     else:
         return redirect('/')
-
 
 def contacts(request):
     return render(request, 'mhsite/contacts.html')
@@ -290,9 +290,8 @@ def mess_cut_apply(request):
             start_date = form.cleaned_data['start_date']
             end_date = form.cleaned_data['end_date']
             delta = (end_date - start_date).days + 1
-            print(delta)
             if delta < 4:
-                args = {'form': form, 'error': delta}
+                args = {'form': form, 'error':delta}
                 return render(request, 'mhsite/mess/mess_cut.html', args)
             try:
 
@@ -306,8 +305,8 @@ def mess_cut_apply(request):
 
                 duplicate_dates = duplicate(date_list, approved_dates) + duplicate(date_list, rejected_dates)
                 date_list['processing'] = [date for date in date_list['processing'] if date not in duplicate_dates]
-                date_list['processing'].sort(reverse=True)
-                print(date_list['processing'])
+                date_list['processing'].sort(reverse = True)
+
                 date_list = (json.dumps(date_list))
 
                 obj.mess_cut_dates = date_list
@@ -343,6 +342,7 @@ def processing(request, year=str(datetime.now().year), month=str(datetime.now().
         res = []
         approved = []
         rejected = []
+        years = []
         for row in rows:
             profile = Application.objects.get(email=row.email)
             name = profile.first_name + " " + profile.last_name
@@ -350,6 +350,13 @@ def processing(request, year=str(datetime.now().year), month=str(datetime.now().
             room_number = profile.room_number  # Complete after finishing profile
             approved_dates = json.loads(MessCut.objects.get(pk=mid).approved_dates)
             rejected_dates = json.loads(MessCut.objects.get(pk=mid).rejected_dates)
+
+            for x in approved_dates:
+                if x not in years:
+                    years.append(x)
+            for x in rejected_dates:
+                if x not in years:
+                    years.append(x)
 
             data = json.loads(row.mess_cut_dates)
             timestamp = float(MessCut.objects.get(email=row.email).applied_date)
@@ -403,12 +410,6 @@ def processing(request, year=str(datetime.now().year), month=str(datetime.now().
             buff.close()
             return response
 
-        years = [year for year in approved_dates]
-        dupe = [year for year in rejected_dates if year not in years]
-        if len(dupe) > 0:
-            for year in dupe:
-                years.append(year)
-
         if len(years) == 0:
             years = [year]
 
@@ -428,8 +429,7 @@ def approval(request, mess_id):
         mess_data = json.loads(mess.mess_cut_dates)
         dates = mess_data['processing']
         profile_data = Application.objects.get(email=mess.email)
-        profile = {'name': profile_data.first_name + " " + profile_data.last_name,
-                   'room_number': profile_data.room_number,
+        profile = {'name': profile_data.first_name +" " +profile_data.last_name, 'room_number': profile_data.room_number,
                    'phone': profile_data.phone}
 
         args = {'dates': dates, 'profile': profile, }
@@ -506,11 +506,11 @@ def edit(request, type, mess_id, year=datetime.now().year, month=datetime.now().
             dates = rejected_dates[str(year)][str(month)]
 
         profile_data = Application.objects.get(email=mess.email)
-        profile = {'name': profile_data.first_name + " " + profile_data.last_name,
+        profile = {'name': profile_data.first_name +" " +profile_data.last_name,
                    'room_number': profile_data.room_number,
                    'phone': profile_data.phone}
 
-        args = {'dates': dates, 'type': type, 'mess_id': mess_id, 'profile': profile}
+        args = {'dates': dates, 'type': type, 'mess_id': mess_id, 'profile':profile}
         return render(request, 'mhsite/mess/edit.html', args)
 
     else:
@@ -589,7 +589,8 @@ def expense_list(request):
         if request.POST:
             download_date = request.POST['download']
             download_date = datetime.strptime(download_date, '%Y-%m-%d')
-            instance = Expense.objects.get(date=download_date)
+
+            instance = Expense.objects.get(date = download_date)
             response = HttpResponse(content_type='application/pdf')
             response['Content-Disposition'] = 'attachment; filename="expense.pdf"'
             from io import StringIO, BytesIO
@@ -608,7 +609,7 @@ def expense_list(request):
             styleHeading.alignment = 0
 
             story = []
-            story.append(Paragraph('Expense for ' + format(download_date, 'F, Y'), styleHeading))
+            story.append(Paragraph('Expense for '+format(download_date, 'F, Y'), styleHeading))
 
             final_data = [['Item', 'Cost'],
                           [instance._meta.get_field('item1').verbose_name, instance.item1],
@@ -619,13 +620,12 @@ def expense_list(request):
                           ['Total', instance.total]]
             tableData = final_data
             ts = [
-                ('LINEABOVE', (0, 0), (-1, 0), 1, colors.gray),
-                ('LINEBELOW', (0, 0), (-1, 0), 1, colors.gray),
-                ('LINEABOVE', (0, -1), (-1, -1), 1, colors.gray), ]
-            story.append(Table(tableData, hAlign='LEFT', style=ts))
+        ('LINEABOVE', (0,0), (-1,0), 1, colors.gray),
+        ('LINEBELOW', (0,0), (-1,0), 1, colors.gray),
+        ('LINEABOVE', (0,-1), (-1,-1), 1, colors.gray),]
+            story.append(Table(tableData, hAlign = 'LEFT', style=ts))
 
-            doc = SimpleDocTemplate(buff, title="Expense for %s" % (format(download_date, 'F, Y')),
-                                    author="mess committee")
+            doc = SimpleDocTemplate(buff, title = "Expense for %s"%(format(download_date, 'F, Y')), author = "mess committee")
             doc.build(story)
             response.write(buff.getvalue())
             buff.close()
@@ -653,7 +653,7 @@ def expense(request, year, month, day):
 
                 try:
                     form.save()
-                    return redirect('/expense')
+                    return redirect('/expense' )
 
                 except IntegrityError as e:
 
